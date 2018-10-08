@@ -1,10 +1,10 @@
-import scalariform.formatter.preferences._
-import com.typesafe.sbt.SbtScalariform
-import com.typesafe.sbt.SbtScalariform.ScalariformKeys
+//import scalariform.formatter.preferences._
+//import com.typesafe.sbt.SbtScalariform
+//import com.typesafe.sbt.SbtScalariform.ScalariformKeys
 
 name := "universal-recommender"
 
-version := "0.7.3"
+version := "0.7.3-metrics"
 
 organization := "com.actionml"
 
@@ -14,11 +14,13 @@ scalaVersion in ThisBuild := "2.11.11"
 
 val mahoutVersion = "0.13.0"
 
-val pioVersion = "0.12.0-incubating"
+val pioVersion = "0.12.1"
 
 val elasticsearchVersion = "5.5.2"
 
 val sparkVersion = "2.1.1"
+
+val prometheusVersion = "0.5.0"
 
 libraryDependencies ++= Seq(
   "org.apache.predictionio" %% "apache-predictionio-core" % pioVersion % "provided",
@@ -26,8 +28,8 @@ libraryDependencies ++= Seq(
   "org.elasticsearch"       %% "elasticsearch-spark-20" % elasticsearchVersion % "provided"
     exclude("org.apache.spark", "*"),
   "org.elasticsearch"        % "elasticsearch-hadoop-mr"  % elasticsearchVersion % "provided",
-  "org.apache.spark" %% "spark-core" % "2.1.1" % "provided",
-  "org.apache.spark" %% "spark-mllib" % "2.1.1" % "provided",
+  "org.apache.spark" %% "spark-core" % sparkVersion % "provided",
+  "org.apache.spark" %% "spark-mllib" % sparkVersion % "provided",
   "org.xerial.snappy" % "snappy-java" % "1.1.1.7",
   // Mahout's Spark libs. They're custom compiled for Scala 2.11
   // and included in the local Maven repo in the .custom-scala-m2/repo resolver below
@@ -41,23 +43,27 @@ libraryDependencies ++= Seq(
   // other external libs
   "com.thoughtworks.xstream" % "xstream" % "1.4.4"
     exclude("xmlpull", "xmlpull"),
-  "org.json4s" %% "json4s-native" % "3.2.10")
+  "org.json4s" %% "json4s-native" % "3.2.10",
+  "io.prometheus" % "simpleclient" % prometheusVersion,
+  "io.prometheus" % "simpleclient_hotspot" % prometheusVersion,
+  "io.prometheus" % "simpleclient_servlet" % prometheusVersion,
+  "io.prometheus" % "simpleclient_pushgateway" % prometheusVersion)
   .map(_.exclude("org.apache.lucene","lucene-core")).map(_.exclude("org.apache.lucene","lucene-analyzers-common"))
 
 
-//resolvers += "Local Repository" at "file:///<path-to>/.custom-scala-m2/repo"
+resolvers += "Local Repository" at "file:////home/chris/prj/id/.custom-scala-m2/repo"
 
-resolvers += "Temp Scala 2.11 build of Mahout" at "https://github.com/actionml/mahout_2.11/raw/mvn-repo/"
+// resolvers += "Temp Scala 2.11 build of Mahout" at "https://github.com/actionml/mahout_2.11/raw/mvn-repo/"
 
 resolvers += Resolver.mavenLocal
 
-SbtScalariform.scalariformSettings
-
-ScalariformKeys.preferences := ScalariformKeys.preferences.value
-  .setPreference(AlignSingleLineCaseStatements, true)
-  .setPreference(DoubleIndentClassDeclaration, true)
-  .setPreference(DanglingCloseParenthesis, Prevent)
-  .setPreference(MultilineScaladocCommentsStartOnFirstLine, true)
+//SbtScalariform.scalariformSettings
+//
+//ScalariformKeys.preferences := ScalariformKeys.preferences.value
+//  .setPreference(AlignSingleLineCaseStatements, true)
+//  .setPreference(DoubleIndentClassDeclaration, true)
+//  .setPreference(DanglingCloseParenthesis, Prevent)
+//  .setPreference(MultilineScaladocCommentsStartOnFirstLine, true)
 
 assemblyMergeStrategy in assembly := {
   case "plugin.properties" => MergeStrategy.discard

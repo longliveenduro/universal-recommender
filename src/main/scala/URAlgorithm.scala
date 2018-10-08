@@ -34,6 +34,7 @@ import org.json4s.JsonAST._
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
 import com.actionml.helpers._
+import io.prometheus.client.Histogram
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration.Duration
@@ -47,7 +48,8 @@ object RecsModels { // todo: replace this with rankings
   override def toString: String = s"$All, $CF, $BF"
 }
 
-/** Setting the option in the params case class doesn't work as expected when the param is missing from
+/**
+ * Setting the option in the params case class doesn't work as expected when the param is missing from
  *  engine.json so set these for use in the algorithm when they are not present in the engine.json
  */
 object DefaultURAlgoParams {
@@ -108,13 +110,13 @@ case class URAlgorithmParams(
   */
 
 case class RankingParams(
-    name: Option[String] = None,
-    `type`: Option[String] = None, // See [[com.actionml.BackfillType]]
-    eventNames: Option[Seq[String]] = None, // None means use the algo eventNames list, otherwise a list of events
-    offsetDate: Option[String] = None, // used only for tests, specifies the offset date to start the duration so the most
-    // recent date for events going back by from the more recent offsetDate - duration
-    endDate: Option[String] = None,
-    duration: Option[String] = None) { // duration worth of events to use in calculation of backfill
+  name: Option[String] = None,
+  `type`: Option[String] = None, // See [[com.actionml.BackfillType]]
+  eventNames: Option[Seq[String]] = None, // None means use the algo eventNames list, otherwise a list of events
+  offsetDate: Option[String] = None, // used only for tests, specifies the offset date to start the duration so the most
+  // recent date for events going back by from the more recent offsetDate - duration
+  endDate: Option[String] = None,
+  duration: Option[String] = None) { // duration worth of events to use in calculation of backfill
   override def toString: String = {
     s"""
        |name: $name,
@@ -166,11 +168,17 @@ case class URAlgorithmParams(
   indicators: Option[List[IndicatorParams]] = None, // control params per matrix pair
   seed: Option[Long] = None, // seed is not used presently
   numESWriteConnections: Option[Int] = None) // hint about how to coalesce partitions so we don't overload ES when
-    // writing the model. The rule of thumb is (numberOfNodesHostingPrimaries * bulkRequestQueueLength) * 0.75
-    // for ES 1.7 bulk queue is defaulted to 50
-    extends Params //fixed default make it reproducible unless supplied
+  // writing the model. The rule of thumb is (numberOfNodesHostingPrimaries * bulkRequestQueueLength) * 0.75
+  // for ES 1.7 bulk queue is defaulted to 50
+  extends Params //fixed default make it reproducible unless supplied
 
-/** Creates cooccurrence, cross-cooccurrence and eventually content correlators with
+object URAlgorithm {
+  val elasticSearchQueryLatencyHisto = Histogram.build()
+    .name("elasticsearch_query_latency_seconds").help("Latency for searches on ES in seconds.").register()
+}
+
+/**
+ * Creates cooccurrence, cross-cooccurrence and eventually content correlators with
  *  [[org.apache.mahout.math.cf.SimilarityAnalysis]] The analysis part of the recommender is
  *  done here but the algorithm can predict only when the coocurrence data is indexed in a
  *  search engine like Elasticsearch. This is done in URModel.save.
@@ -178,7 +186,7 @@ case class URAlgorithmParams(
  *  @param ap taken from engine.json to describe limits and event types
  */
 class URAlgorithm(val ap: URAlgorithmParams)
-    extends P2LAlgorithm[PreparedData, NullModel, Query, PredictedResult] {
+  extends P2LAlgorithm[PreparedData, NullModel, Query, PredictedResult] {
 
   implicit val formats = DefaultFormats
 
@@ -293,8 +301,8 @@ class URAlgorithm(val ap: URAlgorithmParams)
 
     val model = recsModel match {
       case RecsModels.All => calcAll(data)(sc)
-      case RecsModels.CF  => calcAll(data, calcPopular = false)(sc)
-      case RecsModels.BF  => calcPop(data)(sc)
+      case RecsModels.CF => calcAll(data, calcPopular = false)(sc)
+      case RecsModels.BF => calcPop(data)(sc)
       // error, throw an exception
       case unknownRecsModel =>
         throw new IllegalArgumentException(
@@ -352,9 +360,9 @@ class URAlgorithm(val ap: URAlgorithmParams)
       val ranksRdd = getRanksRDD(data.fieldsRDD)
       data.fieldsRDD.fullOuterJoin(ranksRdd).map {
         case (item, (Some(fieldsPropMap), Some(rankPropMap))) => item -> (fieldsPropMap ++ rankPropMap)
-        case (item, (Some(fieldsPropMap), None))              => item -> fieldsPropMap
-        case (item, (None, Some(rankPropMap)))                => item -> rankPropMap
-        case (item, _)                                        => item -> Map.empty
+        case (item, (Some(fieldsPropMap), None)) => item -> fieldsPropMap
+        case (item, (None, Some(rankPropMap))) => item -> rankPropMap
+        case (item, _) => item -> Map.empty
       }
     } else {
       sc.emptyRDD
@@ -368,7 +376,8 @@ class URAlgorithm(val ap: URAlgorithmParams)
     new NullModel
   }
 
-  /** This function creates a URModel from an existing index in Elasticsearch + new popularity ranking
+  /**
+   * This function creates a URModel from an existing index in Elasticsearch + new popularity ranking
    *  It is used when you want to re-calc the popularity model between training on useage data. It leaves
    *  the part of the model created from usage data alone and only modifies the popularity ranking.
    */
@@ -384,9 +393,9 @@ class URAlgorithm(val ap: URAlgorithmParams)
       case (itemId, maps) =>
         maps match {
           case (Some(metaProp), Some(rankProp)) => itemId -> (metaProp ++ rankProp)
-          case (None, Some(rankProp))           => itemId -> rankProp
-          case (Some(metaProp), None)           => itemId -> metaProp
-          case _                                => itemId -> Map.empty
+          case (None, Some(rankProp)) => itemId -> rankProp
+          case (Some(metaProp), None) => itemId -> metaProp
+          case _ => itemId -> Map.empty
         }
     }
     //    logger.debug(s"RanksRdd\n${ranksRdd.take(25).mkString("\n")}")
@@ -401,7 +410,8 @@ class URAlgorithm(val ap: URAlgorithmParams)
   var queryEventNames: Seq[String] = Seq.empty[String] // if passed in with the query overrides the engine.json list--used in MAP@k
   //testing, this only effects which events are used in queries.
 
-  /** Return a list of items recommended for a user identified in the query
+  /**
+   * Return a list of items recommended for a user identified in the query
    *  The ES json query looks like this:
    *  {
    *    "size": 20
@@ -488,7 +498,9 @@ class URAlgorithm(val ap: URAlgorithmParams)
     val (queryStr, blacklist) = buildQuery(ap, query, rankingFieldNames)
     // old es1 query
     // val searchHitsOpt = EsClient.search(queryStr, esIndex, queryEventNames)
+    val timer = URAlgorithm.elasticSearchQueryLatencyHisto.startTimer()
     val searchHitsOpt = EsClient.search(queryStr, esIndex)
+    timer.observeDuration()
 
     val withRanks = query.withRanks.getOrElse(false)
     val predictedResults = searchHitsOpt match {
@@ -528,7 +540,8 @@ class URAlgorithm(val ap: URAlgorithmParams)
     predictedResults
   }
 
-  /** Calculate all fields and items needed for ranking.
+  /**
+   * Calculate all fields and items needed for ranking.
    *
    *  @param fieldsRDD all items with their fields
    *  @param sc the current Spark context
@@ -552,9 +565,9 @@ class URAlgorithm(val ap: URAlgorithmParams)
       case (leftRdd, (fieldName, rightRdd)) =>
         leftRdd.fullOuterJoin(rightRdd).map {
           case (itemId, (Some(propMap), Some(rank))) => itemId -> (propMap + (fieldName -> JDouble(rank)))
-          case (itemId, (Some(propMap), None))       => itemId -> propMap
-          case (itemId, (None, Some(rank)))          => itemId -> Map(fieldName -> JDouble(rank))
-          case (itemId, _)                           => itemId -> Map.empty
+          case (itemId, (Some(propMap), None)) => itemId -> propMap
+          case (itemId, (None, Some(rank))) => itemId -> Map(fieldName -> JDouble(rank))
+          case (itemId, _) => itemId -> Map.empty
         }
     }
   }
