@@ -500,7 +500,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
     // val searchHitsOpt = EsClient.search(queryStr, esIndex, queryEventNames)
     val timer = URAlgorithm.elasticSearchQueryLatencyHisto.startTimer()
     val searchHitsOpt = EsClient.search(queryStr, esIndex)
-    timer.observeDuration()
+    val esQueryDuration = timer.observeDuration()
 
     val withRanks = query.withRanks.getOrElse(false)
     val predictedResults = searchHitsOpt match {
@@ -537,6 +537,11 @@ class URAlgorithm(val ap: URAlgorithmParams)
     // should have all blacklisted items excluded
     // todo: need to add dithering, mean, sigma, seed required, make a seed that only changes on some fixed time
     // period so the recs ordering stays fixed for that time period.
+
+    if (esQueryDuration > 0.05d) {
+      logger.warn(s"Slow call to ESsearch ($esQueryDuration seconds) with params: queryStr=$queryStr predictedResults=$predictedResults")
+    }
+
     predictedResults
   }
 
