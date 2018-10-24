@@ -14,7 +14,7 @@ scalaVersion in ThisBuild := "2.11.11"
 
 val mahoutVersion = "0.13.0"
 
-val pioVersion = "0.12.0-incubating"
+val pioVersion = "0.14.0-SNAPSHOT"
 
 val elasticsearchVersion = "5.5.2"
 

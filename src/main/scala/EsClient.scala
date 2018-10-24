@@ -22,13 +22,13 @@ import java.util
 
 import grizzled.slf4j.Logger
 import org.apache.http.util.EntityUtils
-import org.apache.predictionio.data.storage.{ DataMap, Storage, StorageClientConfig }
+import org.apache.predictionio.data.storage.{DataMap, Storage, StorageClientConfig}
 import org.apache.predictionio.workflow.CleanupFunctions
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.elasticsearch.client.RestClient
 import org.apache.http.HttpHost
-import org.apache.http.auth.{ AuthScope, UsernamePasswordCredentials }
+import org.apache.http.auth.{AuthScope, UsernamePasswordCredentials}
 import org.apache.http.entity.ContentType
 import org.apache.http.entity.StringEntity
 import org.apache.http.impl.client.BasicCredentialsProvider
@@ -42,6 +42,9 @@ import org.elasticsearch.spark._
 import org.json4s.JValue
 import org.json4s.DefaultFormats
 import org.json4s.JsonAST.JString
+import ScalaRestClient.ExtendedScalaRestClient
+
+import scala.concurrent.{ExecutionContext, Future}
 // import org.json4s.native.Serialization.writePretty
 import com.actionml.helpers.{ ItemID, ItemProps }
 
@@ -367,20 +370,23 @@ object EsClient {
    *  @param indexName the index to search
    *  @return a [PredictedResults] collection
    */
-  def search(query: String, indexName: String): Option[JValue] = {
+  def search(query: String, indexName: String)(implicit ec: ExecutionContext): Future[Option[JValue]] = {
     logger.info(s"Query:\n${query}")
-    val response = client.performRequest(
+    val responseFuture = client.performRequestFuture(
       "POST",
       s"/$indexName/_search",
-      Map.empty[String, String].asJava,
+      Map.empty[String, String],
       new StringEntity(query, ContentType.APPLICATION_JSON))
-    response.getStatusLine.getStatusCode match {
-      case 200 =>
-        logger.info(s"Got source from query: ${query}")
-        Some(parse(EntityUtils.toString(response.getEntity)))
-      case _ =>
-        logger.info(s"Query: ${query}\nproduced status code: ${response.getStatusLine.getStatusCode}")
-        None
+    responseFuture.map {
+      response =>
+        response.getStatusLine.getStatusCode match {
+          case 200 =>
+            logger.info(s"Got source from query: ${query}")
+            Some(parse(EntityUtils.toString(response.getEntity)))
+          case _ =>
+            logger.info(s"Query: ${query}\nproduced status code: ${response.getStatusLine.getStatusCode}")
+            None
+        }
     }
   }
 
