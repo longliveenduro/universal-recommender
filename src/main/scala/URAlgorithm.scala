@@ -807,12 +807,14 @@ class URAlgorithm(val ap: URAlgorithmParams)
   /** Get recent events of the user on items to create the recommendations query from */
   def getBiasedRecentUserActions(query: Query)(implicit ec: ExecutionContext): Future[(Seq[BoostableCorrelators], Seq[Event])] = {
 
+    val entityTypeUserIfPresent = query.user.map(_ => "user")
+
     val recentEventsFuture =
       LEventStore.findByEntityAsync(
         appName = appName,
         // entityType and entityId is specified for fast lookup
-        entityType = "user",
-        entityId = query.user.get,
+        entityType = entityTypeUserIfPresent,
+        entityId = query.user,
         // one query per eventName is not ideal, maybe one query for lots of events then split by eventName
         // eventNames = Some(Seq(action)),// get all and separate later
         eventNames = Some(queryEventNames), // get all and separate later
