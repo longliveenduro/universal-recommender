@@ -808,6 +808,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
   def getBiasedRecentUserActions(query: Query)(implicit ec: ExecutionContext): Future[(Seq[BoostableCorrelators], Seq[Event])] = {
 
     val entityTypeUserIfPresent = query.user.map(_ => "user")
+    val latestFirst = entityTypeUserIfPresent.fold(false)(_ => true) // reversed is only allowed if entityType/Id is specified
 
     val recentEventsFuture =
       LEventStore.findByEntityAsync(
@@ -821,7 +822,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
         // targetEntityType = None,
         // limit = Some(maxQueryEvents), // this will get all history then each action can be limited before using in
         // the query
-        latest = true).map(_.toSeq)
+        latest = latestFirst).map(_.toSeq)
 
     val recoveredRecentEventsFuture = recentEventsFuture.recover {
       case e: NoSuchElementException =>
