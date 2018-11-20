@@ -21,7 +21,7 @@ import java.util
 
 import grizzled.slf4j.Logger
 import org.apache.predictionio.controller.{P2LAlgorithm, Params}
-import org.apache.predictionio.data.storage.{DataMap, Event, NullModel, PropertyMap}
+import org.apache.predictionio.data.storage.{Event, NullModel}
 import org.apache.predictionio.data.store.LEventStore
 import org.apache.mahout.math.cf.{DownsamplableCrossOccurrenceDataset, SimilarityAnalysis}
 import org.apache.mahout.sparkbindings.indexeddataset.IndexedDatasetSpark
@@ -34,12 +34,14 @@ import org.json4s.JsonAST._
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
 import com.actionml.helpers._
-import scala.concurrent.ExecutionContext
+
+import scala.concurrent.{ExecutionContext, Future}
 import scala.collection.JavaConverters._
-import scala.concurrent.Future
 import scala.concurrent.duration.Duration
 import scala.language.{implicitConversions, postfixOps}
-import ScalaRestClient.ExtendedScalaRestClient
+
+import scala.concurrent.duration._
+import scala.language.postfixOps
 
 /** Available value for algorithm param "RecsModel" */
 object RecsModels { // todo: replace this with rankings
@@ -824,14 +826,20 @@ class URAlgorithm(val ap: URAlgorithmParams)
         // the query
         latest = latestFirst).map(_.toSeq)
 
-    val recoveredRecentEventsFuture = recentEventsFuture.recover {
-      case e: NoSuchElementException =>
-        logger.info("No user id for recs, returning item-based recs if an item is specified in the query.")
-        Seq.empty[Event]
-      case e: Exception => // fatal because of error, an empty query
-        logger.error(s"Error when reading recent events. Trying to continue by ignoring the error. $e")
-        Seq.empty[Event]
-    }
+    val recoveredRecentEventsFuture =
+      FutureUtil
+        .futureWithTimeout(recentEventsFuture, 200 millis)
+        .recover {
+          case e: scala.concurrent.TimeoutException =>
+            logger.error(s"Timeout when reading recent events. Empty list is used. $e")
+            Seq.empty[Event]
+          case e: NoSuchElementException =>
+            logger.info("No user id for recs, returning item-based recs if an item is specified in the query.")
+            Seq.empty[Event]
+          case e: Exception => // fatal because of error, an empty query
+            logger.error(s"Error when reading recent events. Trying to continue by ignoring the error. $e")
+            Seq.empty[Event]
+        }
 
     recoveredRecentEventsFuture.map {
       recentEvents =>
